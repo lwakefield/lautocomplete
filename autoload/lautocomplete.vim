@@ -1,7 +1,7 @@
 let s:wordcache = {}
 let s:wordstart = 0
 let s:currword = ''
-let s:available_snippets = []
+let s:suggestions = { 'snippets': [], 'keywords': [] }
 let s:timer = -1
 
 fun! lautocomplete#init()
@@ -30,13 +30,29 @@ fun! s:async_comp()
         return
     end
 
-    fun! Receieve(job_id, data, event)
-        call complete(s:start + 1, s:available_snippets + a:data)
+    fun! ReceiveKeywords(job_id, data, event)
+        let s:suggestions['keywords'] = a:data
+        call s:update()
     endfun
 
-    let s:available_snippets = s:get_snippets()
-    let words = join(map(values(s:wordcache), {k, v -> join(v, '\\n')}), '\\n')
-    call jobstart('echo "'.words.'" | fzy -e '.s:currword, {'on_stdout': 'Receieve'})
+    fun! ReceiveSnippets(job_id, data, event)
+        let snippets = UltiSnips#SnippetsInCurrentScope()
+        call filter(a:data, {k, v -> v != ''})
+
+        let s:suggestions['snippets'] = map(a:data, {k, v -> {'word': v, 'menu': snippets[v], 'kind': '<snippet>'}})
+        call s:update()
+    endfun
+
+    let keywords = join(map(values(s:wordcache), {k, v -> join(v, '\\n')}), '\\n')
+    call jobstart('echo "'.keywords.'" | fzy -e '.s:currword, {'on_stdout': 'ReceiveKeywords'})
+
+    let snippet_words = join(s:get_snippet_words(), '\\n')
+    call jobstart('echo "'.snippet_words.'" | fzy -e '.s:currword, {'on_stdout': 'ReceiveSnippets'})
+
+endfun
+
+fun! s:update()
+    call complete(s:start + 1, s:suggestions['snippets'] + s:suggestions['keywords'])
 endfun
 
 fun! s:maybe_expand_snippet()
@@ -47,10 +63,10 @@ fun! s:maybe_expand_snippet()
     endif
 endfun
 
-fun! s:get_snippets()
+fun! s:get_snippet_words()
     let snippets = UltiSnips#SnippetsInCurrentScope()
     let filtered = filter(snippets, {k, v -> k =~ '^'.s:currword})
-    return values(map(filtered, {k, v -> {'word': k, 'menu': v, 'kind': '<snippet>'}}))
+    return keys(filtered)
 endfun
 
 fun! s:cache_words()
